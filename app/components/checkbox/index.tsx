@@ -8,7 +8,7 @@ type CheckboxSize = 'sm' | 'md' | 'lg';
 interface CheckboxProps extends BoxProps {
   label?: ReactNode; 
   checked: boolean;
-  onChange: () => void; 
+  onChange?: () => void; 
   disabled?: boolean; 
   color?: Color; 
   size?: CheckboxSize; 
@@ -38,7 +38,7 @@ export function Checkbox({
             gap={currentSize.gap}
             cursor={cursor}
             onClick={() => {
-                if (!disabled) { 
+                if (!disabled && onChange) { 
                 onChange();
                 }
             }}
