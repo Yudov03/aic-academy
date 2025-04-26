@@ -1,16 +1,18 @@
 import { getTheme, ThemeProvider } from '@aic-kits/react';
-import type { LinksFunction } from '@remix-run/node';
+import type { LinksFunction, LoaderFunctionArgs } from '@remix-run/node';
+import { json } from '@remix-run/node';
 import {
   Links,
   Meta,
   Outlet,
   Scripts,
   ScrollRestoration,
+  useLoaderData,
 } from '@remix-run/react';
 import './tailwind.css';
 
 import { AppHeader } from './components';
-
+import { getSession } from '~/utils/session.server';
 
 export const links: LinksFunction = () => [
   { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
@@ -25,7 +27,15 @@ export const links: LinksFunction = () => [
   },
 ];
 
-export function Layout({ children }: { children: React.ReactNode }) {
+export async function loader({ request }: LoaderFunctionArgs) {
+  const session = await getSession(request.headers.get("Cookie"));
+  const userId = session.get("userId");
+  const isSignedIn = !!userId;
+  return json({ isSignedIn });
+}
+
+export function Layout({ children }: { children: React.ReactNode}) {
+  const data = useLoaderData<typeof loader>();
   return (
     <html lang="en">
       <head>
@@ -36,9 +46,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         <ThemeProvider theme={getTheme()}>
-          <AppHeader />
+          <AppHeader isSignedIn={data.isSignedIn} />
           {children}
-        </ThemeProvider> 
+        </ThemeProvider>
         
         <ScrollRestoration />
         <Scripts />
@@ -49,6 +59,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
-    <Outlet />
+      <Outlet />
   );
 }

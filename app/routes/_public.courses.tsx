@@ -1,5 +1,5 @@
-import { useLoaderData, useFetcher, Link, useSearchParams, useNavigate, useNavigation } from '@remix-run/react';
-import { LoaderFunction, json } from '@remix-run/node';
+import { useLoaderData, useFetcher, Link, useSearchParams, useNavigate, useNavigation, type NavigateFunction } from '@remix-run/react';
+import { LoaderFunctionArgs, json } from '@remix-run/node';
 import { CourseService } from '~/services/courses.service';
 import { Course } from '~/models/courses.model';
 import {
@@ -11,9 +11,12 @@ import {
   Divider,
   Skeleton,
   Art,
+  Color,
 } from '@aic-kits/react';
 import { useState, useEffect } from 'react';
 import { Checkbox, Dropdown } from '~/components';
+import { getSession } from '~/utils/session.server';
+import { prisma } from '~/utils/db.server';
 // Định nghĩa các tùy chọn sắp xếp: label cho người dùng và value cho API/URL
 const sortOptions = [
   { label: 'Release Date (newest first)', value: 'date_desc' },
@@ -31,7 +34,18 @@ interface WPTerm {
   // Có thể có các trường khác như count, description, taxonomy...
 }
 
-export const loader: LoaderFunction = async ({ request }) => {
+// Định nghĩa kiểu dữ liệu cho kết quả select từ prisma
+type UserEnrollmentSelection = {
+  courseId: number;
+  enrollment_status: string;
+}
+
+export const loader = async ({ request }: LoaderFunctionArgs) => {
+  // --- Get User ID from session ---
+  const session = await getSession(request.headers.get("Cookie"));
+  const userId = session.get("userId"); // This will be number | undefined
+  // --- End Get User ID ---
+
   const courseService = new CourseService();
   const url = new URL(request.url);
   const params = new URLSearchParams(url.search);
@@ -69,15 +83,7 @@ export const loader: LoaderFunction = async ({ request }) => {
 
   try {
     // --- Tạo đối tượng options cho API một cách có điều kiện ---
-    const fetchOptions: {
-      order: string;
-      orderby: string;
-      paged: number;
-      search?: string;
-      categories?: string; // Optional
-      tags?: string;       // Optional
-      // Thêm các trường khác nếu cần (ví dụ: meta_key)
-    } = {
+    const fetchOptions: any = {
       order: apiOrder,
       orderby: apiOrderBy,
       paged: page,
@@ -105,7 +111,7 @@ export const loader: LoaderFunction = async ({ request }) => {
     ]);
 
     // Xử lý kết quả API Khóa học
-    const courses = coursesResponse.data;
+    let courses: Course[] = coursesResponse.data || [];
     const totalPages = coursesResponse.meta?.pages ?? 1;
     const totalCourses = coursesResponse.meta?.total ?? courses?.length ?? 0;
 
@@ -127,11 +133,50 @@ export const loader: LoaderFunction = async ({ request }) => {
        // Có thể muốn throw error hoặc trả về mảng rỗng
     }
 
-    console.log(`Loader: Options sent: ${JSON.stringify(fetchOptions)}. Fetched ${courses?.length} courses. Total pages: ${totalPages}.`);
+    // --- Fetch Enrollment Statuses if logged in ---
+    let enrollmentMap = new Map<number, string>();
+    if (userId && courses.length > 0) {
+      const courseIds = courses.map(course => course.ID);
+      try {
+        const userEnrollments = await prisma.usercourse.findMany({
+          where: {
+            userId: userId,
+            courseId: { in: courseIds }
+          },
+          select: {
+            courseId: true,
+            enrollment_status: true
+          }
+        });
+
+        if (userEnrollments) {
+          // Định nghĩa kiểu cho tham số enrollment ở đây
+          console.log(userEnrollments);
+          userEnrollments.forEach((enrollment: UserEnrollmentSelection) => {
+            enrollmentMap.set(enrollment.courseId, enrollment.enrollment_status);
+          });
+        }
+      } catch (dbError) {
+        console.error("Error fetching user enrollments:", dbError);
+        // Decide how to handle DB errors, maybe proceed without enrollments
+      }
+    }
+    // --- End Fetch Enrollment Statuses ---
+
+    // --- Combine data: Add enrollmentStatus to each course ---
+    // Change 'null' to 'undefined' here to match the expected type
+    const coursesWithStatus = courses.map(course => ({
+      ...course,
+      // Use 'undefined' if status is not found in the map
+      enrollmentStatus: enrollmentMap.get(course.ID) || undefined
+    }));
+    // --- End Combine data ---
+    console.log(coursesWithStatus[1]);
+    
 
     // Trả về tất cả dữ liệu cần thiết
     return json({ 
-      courses, 
+      courses: coursesWithStatus, 
       totalPages, 
       currentPage: page, 
       totalCourses,
@@ -203,24 +248,63 @@ function CourseCardSkeleton() {
 }
 // --- End Component CourseCardSkeleton ---
 
+// --- Helper Function: Get Course Card Action ---
+interface CourseCardAction {
+  buttonColor: string;
+  buttonText: string;
+  buttonAction: () => void;
+}
+
+// Update helper to use enrollmentStatus from the course object
+function getCourseCardAction(course: Course, navigate: NavigateFunction): CourseCardAction {
+  // Use the status fetched from the database
+  const enrollmentStatus = course.enrollmentStatus; // Assumes Course type has enrollmentStatus?
+  let buttonText = 'Enroll Course'; // Default text
+  let buttonColor = 'lime500';
+  let buttonAction = () => alert(`Enrolling in: ${course.post_title}`); // Default action
+
+  // Logic based on actual enrollment status
+  if (enrollmentStatus === 'Continue Learning') {
+      buttonText = 'Continue Learning';
+      buttonColor = 'cyan500';
+      buttonAction = () => navigate(`/courses/${course.id}/learn`);
+  } else if (enrollmentStatus === 'Start Learning') {
+      buttonText = 'Start Learning';
+      buttonColor = 'orange400';
+      buttonAction = () => navigate(`/courses/${course.id}/learn`);
+  }
+  // Add other statuses if needed (e.g., 'completed')
+
+  return { buttonColor, buttonText, buttonAction };
+}
+// --- End Helper Function ---
+
 export default function CoursesPage() {
-  const initialData = useLoaderData<{ 
-      courses: Course[]; 
-      totalPages: number; 
-      currentPage: number; 
-      totalCourses?: number;
-      availableCategories: WPTerm[];
-      availableTags: WPTerm[];
-      error?: string;
-  }>();
-  const fetcher = useFetcher<typeof initialData>();
+  const initialData = useLoaderData<typeof loader>();
+  const fetcher = useFetcher<typeof loader>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const navigation = useNavigation();
-  const loading = navigation.state === 'loading';
+  const loading = fetcher.state !== 'idle' || navigation.state !== 'idle';
 
   const displayData = fetcher.data || initialData;
-  const { courses, totalPages, currentPage, totalCourses, availableCategories, availableTags, error } = displayData;
+
+  // Handle error case first using type guarding
+  if ('error' in displayData && displayData.error) {
+      // Assign to a variable to ensure the type is correctly inferred as string
+      // const errorMessage = displayData.error;
+      return (
+        <Base>
+          <Box p="lg">
+            <Text color="danger">Error fetching data</Text>
+          </Box>
+        </Base>
+      );
+  }
+
+  // If no error, TypeScript knows displayData has the success shape.
+  // Destructure the guaranteed properties.
+  const { courses, totalPages, currentPage, totalCourses, availableCategories, availableTags } = displayData;
 
   // State for search input
   const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
@@ -277,10 +361,6 @@ export default function CoursesPage() {
     return () => clearTimeout(timer);
   // --- THÊM currentSortValue VÀO ĐÂY, XÓA sortingOption ---
   }, [searchQuery, selectedCategories, selectedTags, currentSortValue, navigate]); 
-
-  if (error) {
-      return <Base><Box p="lg"><Text color="danger">{error}</Text></Box></Base>;
-  }
 
   const handleCategoryToggle = (categoryIdentifier: string) => {
     setSelectedCategories((prev) =>
@@ -411,20 +491,11 @@ export default function CoursesPage() {
           ) : courses && courses.length > 0 ? (
             <Box className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6'>
               {courses.map((course) => {
-                let buttonText = 'Enroll Course';
-                let buttonAction = () => alert(`Enrolling in: ${course.post_title}`);
-                const enrollmentStatus = course.ping_status;
-
-                if (enrollmentStatus === 'enrolled_started') {
-                    buttonText = 'Continue Learning';
-                    buttonAction = () => navigate(`/courses/${course.id}/learn`);
-                } else if (enrollmentStatus === 'enrolled_not_started') {
-                    buttonText = 'Start Learning';
-                    buttonAction = () => navigate(`/courses/${course.id}/learn`);
-                }
+                // Pass the updated course object to the helper
+                const { buttonColor, buttonText, buttonAction } = getCourseCardAction(course, navigate);
                 return (
                   <Box
-                    key={course.id}
+                    key={course.ID}
                     bgColor="white"
                     borderColor="grey300"
                     b='thin'
@@ -433,7 +504,7 @@ export default function CoursesPage() {
                   >
                     <Box className="relative w-full aspect-video">
                       <img
-                        src={"https://placehold.co/400"}
+                        src={course.thumbnail_url || "https://placehold.co/400"}
                         alt={course.post_title}
                         className="absolute inset-0 w-full h-full object-cover"
                       />
@@ -479,10 +550,10 @@ export default function CoursesPage() {
                       <Divider/>
 
                       <Box mt='md'>
-                         <Button 
-                           text={buttonText} 
+                         <Button
+                           text={buttonText}
                            onClick={buttonAction}
-                           color="primary"
+                           color={buttonColor as Color}
                          />
                       </Box>
                     </Box>

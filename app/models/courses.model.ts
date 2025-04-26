@@ -83,4 +83,5 @@ export interface Course extends WordPressEntity {
   };
   course_tags?: [];
   price: string;
+  enrollmentStatus?: string
 }
