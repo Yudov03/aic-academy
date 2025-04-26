@@ -260,3 +260,6 @@ The project presented several challenges, primarily stemming from the introducti
 
 Despite these initial hurdles associated with learning new tools and acquiring new knowledge, leveraging quick learning ability and keen adaptability proved crucial in navigating these complexities. This adaptability, combined with iterative development and effective use of resources like AI assistance (detailed in Process) and documentation, enabled the successful completion of all project requirements within the significantly accelerated timeframe.
 
+# Demo
+
+video url: https://drive.google.com/file/d/1k135XT82joYmN9PBHGJlX7dIQcVdAYGj/view?usp=sharing 
