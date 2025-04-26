@@ -8,6 +8,7 @@ import {
   Scripts,
   ScrollRestoration,
   useLoaderData,
+  useNavigation,
 } from '@remix-run/react';
 import './tailwind.css';
 
@@ -36,6 +37,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 export function Layout({ children }: { children: React.ReactNode}) {
   const data = useLoaderData<typeof loader>();
+  const navigation = useNavigation();
+  const isLoadingPage = navigation.state === 'loading';
+
   return (
     <html lang="en">
       <head>
@@ -43,11 +47,39 @@ export function Layout({ children }: { children: React.ReactNode}) {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <Meta />
         <Links />
+        <style>{`
+          @keyframes loading-progress {
+            0% { transform: translateX(-100%); }
+            50% { transform: translateX(100%); }
+            100% { transform: translateX(-100%); }
+          }
+          .loading-bar {
+            height: 100%;
+            width: 50%; /* Adjust width as needed */
+            background-color: #3b82f6; /* Example blue color */
+            animation: loading-progress 1.5s infinite ease-in-out;
+          }
+        `}</style>
       </head>
       <body>
+        {isLoadingPage && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '4px',
+            backgroundColor: 'rgba(59, 130, 246, 0.2)',
+            zIndex: 9999,
+            overflow: 'hidden',
+          }}>
+            <div className="loading-bar" />
+          </div>
+        )}
+
         <ThemeProvider theme={getTheme()}>
           <AppHeader isSignedIn={data.isSignedIn} />
-          {children}
+          <main>{children}</main>
         </ThemeProvider>
         
         <ScrollRestoration />

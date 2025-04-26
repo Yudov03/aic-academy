@@ -269,32 +269,30 @@ export default function CoursesPage() {
 
   // --- useEffect ---
   useEffect(() => {
+    const currentUrlParamsString = searchParams.toString();
+
     const timer = setTimeout(() => {
-      const newParams = new URLSearchParams(searchParams);
+      const targetParams = new URLSearchParams();
 
-      // Update search, category, tag params (như trước)
-      if (searchQuery) newParams.set('search', searchQuery); else newParams.delete('search');
-      if (selectedCategories.length > 0) newParams.set('categories', selectedCategories.join(',')); else newParams.delete('categories');
-      if (selectedTags.length > 0) newParams.set('tags', selectedTags.join(',')); else newParams.delete('tags');
-      
-      // --- Update sort param (dùng currentSortValue) ---
-      if (currentSortValue !== sortOptions[0].value) { 
-        newParams.set('sort', currentSortValue);
-      } else {
-        newParams.delete('sort'); 
+      if (searchQuery) targetParams.set('search', searchQuery);
+      if (selectedCategories.length > 0) targetParams.set('categories', selectedCategories.join(','));
+      if (selectedTags.length > 0) targetParams.set('tags', selectedTags.join(','));
+
+      if (currentSortValue !== sortOptions[0].value) {
+        targetParams.set('sort', currentSortValue);
       }
-
-      // Always go to page 1 when filters change
-      newParams.set('page', '1');
-
-      // Check if params actually changed before navigating
-      if (newParams.toString() !== searchParams.toString()) {
-         navigate(`/courses?${newParams.toString()}`, { replace: true });
+      if (targetParams.toString() !== "") {
+          targetParams.set('page', '1');
       }
-    }, 500); // Debounce changes
-
+      const targetParamsString = targetParams.toString();
+      if (targetParamsString !== currentUrlParamsString) {
+         console.log(`useEffect navigating: target='${targetParamsString}', current='${currentUrlParamsString}'`);
+         navigate(`/courses?${targetParamsString}`, { replace: true });
+      }
+    }, 500); // Debounce time
+    // Cleanup function
     return () => clearTimeout(timer);
-  }, [searchQuery, selectedCategories, selectedTags, currentSortValue, navigate]); 
+  }, [searchQuery, selectedCategories, selectedTags, currentSortValue, navigate]);
 
   const handleCategoryToggle = (categoryIdentifier: string) => {
     setSelectedCategories((prev) =>
@@ -319,7 +317,6 @@ export default function CoursesPage() {
     navigate('/courses?page=1', { replace: true }); // Navigate to base state
   };
 
-  // Helper để lấy label của lựa chọn sort hiện tại
   const getCurrentSortLabel = () => {
     return sortOptions.find(opt => opt.value === currentSortValue)?.label || sortOptions[0].label;
   };
@@ -363,7 +360,7 @@ export default function CoursesPage() {
           {/* categories component */}
           <Box>
             <Box mb="sm"><Text fontWeight="bold" >Categories</Text></Box>
-            <Box display="flex" flexDirection="column" gap="sm"> {/* Thay thế className */}
+            <Box display="flex" flexDirection="column" gap="sm"> 
               {availableCategories && availableCategories.length > 0 ? (
                 availableCategories.map((category) => (
                   <Checkbox
@@ -381,7 +378,7 @@ export default function CoursesPage() {
           {/* tags component */}
           <Box>
             <Box mb="sm"><Text fontWeight="bold" >Tags</Text></Box>
-            <Box display="flex" flexDirection="column" gap="sm"> {/* Thay thế className */}
+            <Box display="flex" flexDirection="column" gap="sm">
               {availableTags && availableTags.length > 0 ? (
                 availableTags.map((tag) => (
                   <Checkbox 
