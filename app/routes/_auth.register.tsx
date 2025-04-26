@@ -1,8 +1,4 @@
-import { Form } from "@remix-run/react";
-import { useNavigate } from "@remix-run/react";
-export default function Login() {
-    const navigate = useNavigate();
-  
+export default function Login() {  
     return (
         <div className="h-full bg-white"> 
             <div className="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8">

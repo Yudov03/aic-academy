@@ -17,123 +17,100 @@ import { useState, useEffect } from 'react';
 import { Checkbox, Dropdown } from '~/components';
 import { getSession } from '~/utils/session.server';
 import { prisma } from '~/utils/db.server';
-// Định nghĩa các tùy chọn sắp xếp: label cho người dùng và value cho API/URL
+
 const sortOptions = [
   { label: 'Release Date (newest first)', value: 'date_desc' },
   { label: 'Release Date (oldest first)', value: 'date_asc' },
   { label: 'Course Title (a-z)', value: 'title_asc' },
   { label: 'Course Title (z-a)', value: 'title_desc' },
-  // Thêm các tùy chọn khác nếu cần
 ];
 
-// Định nghĩa kiểu dữ liệu trả về từ API category/tag (Giả định dựa trên WP REST API)
 interface WPTerm {
   id: number;
   name: string;
   slug: string; 
-  // Có thể có các trường khác như count, description, taxonomy...
 }
 
-// Định nghĩa kiểu dữ liệu cho kết quả select từ prisma
 type UserEnrollmentSelection = {
   courseId: number;
   enrollment_status: string;
 }
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  // --- Get User ID from session ---
   const session = await getSession(request.headers.get("Cookie"));
-  const userId = session.get("userId"); // This will be number | undefined
-  // --- End Get User ID ---
-
+  const userId = session.get("userId");
   const courseService = new CourseService();
   const url = new URL(request.url);
   const params = new URLSearchParams(url.search);
   const page = parseInt(params.get('page') || '1', 10);
   const search = params.get('search') || '';
-  const categoriesString = params.get('categories') || ''; // VD: "audio-gen,video-gen" hoặc ""
-  const tagsString = params.get('tags') || '';           // VD: "released" hoặc ""
+  const categoriesString = params.get('categories') || '';
+  const tagsString = params.get('tags') || '';         
   const sortValue = params.get('sort') || sortOptions[0].value; 
 
-  // ** Logic để chuyển đổi sortValue thành các tham số API cụ thể (ví dụ: orderby, order) **
-  // Phần này phụ thuộc vào cách API của bạn xử lý việc sắp xếp
-  let apiOrderBy = 'date'; // Mặc định
-  let apiOrder = 'desc'; // Mặc định
+  let apiOrderBy = 'date';
+  let apiOrder = 'desc';
 
   switch (sortValue) {
     case 'date_desc':
-      apiOrderBy = 'date'; // Hoặc 'post_date' tùy API
+      apiOrderBy = 'date';
       apiOrder = 'desc';
       break;
     case 'date_asc':
-      apiOrderBy = 'date'; // Giả định rating lưu trong meta field
+      apiOrderBy = 'date';
       apiOrder = 'asc';
       break;
     case 'title_desc':
-      apiOrderBy = 'title'; // Giả định popularity lưu trong meta field
+      apiOrderBy = 'title';
       apiOrder = 'desc';
       break;
     case 'title_asc':
-      apiOrderBy = 'title'; // Giả định popularity lưu trong meta field
+      apiOrderBy = 'title';
       apiOrder = 'asc';
       break;
-    // Thêm các case khác nếu cần
   }
-  // ** Kết thúc phần logic chuyển đổi **
 
   try {
-    // --- Tạo đối tượng options cho API một cách có điều kiện ---
     const fetchOptions: any = {
       order: apiOrder,
       orderby: apiOrderBy,
       paged: page,
     };
 
-    // Chỉ thêm 'search' nếu nó có giá trị
     if (search) {
       fetchOptions.search = search;
     }
-    // Chỉ thêm 'categories' nếu categoriesString không rỗng
     if (categoriesString) {
       fetchOptions.categories = categoriesString;
     }
-    // Chỉ thêm 'tags' nếu tagsString không rỗng
     if (tagsString) {
       fetchOptions.tags = tagsString;
     }
-    // --- Kết thúc tạo options ---
 
-    // Gọi cả 3 API song song
     const [coursesResponse, categoriesResponse, tagsResponse] = await Promise.all([
       courseService.fetchAllCourses(fetchOptions), 
       fetch('https://ai-tutors.co/wp-json/wp/v2/course-category'), 
       fetch('https://ai-tutors.co/wp-json/wp/v2/course-tag')      
     ]);
 
-    // Xử lý kết quả API Khóa học
     let courses: Course[] = coursesResponse.data || [];
     const totalPages = coursesResponse.meta?.pages ?? 1;
     const totalCourses = coursesResponse.meta?.total ?? courses?.length ?? 0;
 
-    // Xử lý kết quả API Categories
     let availableCategories: WPTerm[] = [];
     if (categoriesResponse.ok) {
       availableCategories = await categoriesResponse.json();
     } else {
       console.warn("Failed to fetch categories:", categoriesResponse.statusText);
-      // Có thể muốn throw error hoặc trả về mảng rỗng
     }
 
-    // Xử lý kết quả API Tags
     let availableTags: WPTerm[] = [];
     if (tagsResponse.ok) {
       availableTags = await tagsResponse.json();
     } else {
       console.warn("Failed to fetch tags:", tagsResponse.statusText);
-       // Có thể muốn throw error hoặc trả về mảng rỗng
     }
 
-    // --- Fetch Enrollment Statuses if logged in ---
     let enrollmentMap = new Map<number, string>();
     if (userId && courses.length > 0) {
       const courseIds = courses.map(course => course.ID);
@@ -150,31 +127,20 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         });
 
         if (userEnrollments) {
-          // Định nghĩa kiểu cho tham số enrollment ở đây
-          console.log(userEnrollments);
           userEnrollments.forEach((enrollment: UserEnrollmentSelection) => {
             enrollmentMap.set(enrollment.courseId, enrollment.enrollment_status);
           });
         }
       } catch (dbError) {
         console.error("Error fetching user enrollments:", dbError);
-        // Decide how to handle DB errors, maybe proceed without enrollments
       }
     }
-    // --- End Fetch Enrollment Statuses ---
 
-    // --- Combine data: Add enrollmentStatus to each course ---
-    // Change 'null' to 'undefined' here to match the expected type
     const coursesWithStatus = courses.map(course => ({
       ...course,
-      // Use 'undefined' if status is not found in the map
       enrollmentStatus: enrollmentMap.get(course.ID) || undefined
     }));
-    // --- End Combine data ---
-    console.log(coursesWithStatus[1]);
-    
 
-    // Trả về tất cả dữ liệu cần thiết
     return json({ 
       courses: coursesWithStatus, 
       totalPages, 
@@ -186,14 +152,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   } catch (error) {
     console.error("Error fetching data in loader:", error);
-    // Trả về cấu trúc dữ liệu mặc định ngay cả khi lỗi
     return json({ 
       courses: [], 
       totalPages: 0, 
       currentPage: 1, 
       totalCourses: 0, 
-      availableCategories: [], // Trả về mảng rỗng khi lỗi
-      availableTags: [],       // Trả về mảng rỗng khi lỗi
+      availableCategories: [], 
+      availableTags: [],      
       error: "Failed to load page data" 
     }, { status: 500 });
   }
@@ -204,44 +169,26 @@ function CourseCardSkeleton() {
   return (
     <Box
       bgColor="white"
-      borderColor="grey200" // Dùng màu nhạt hơn cho skeleton border
+      borderColor="grey200" 
       b='thin'
       borderRadius='md'
-      className="shadow-sm overflow-hidden flex flex-col h-full" // Giữ cấu trúc cơ bản
+      display='flex'
+      flexDirection='column'
+      className="shadow-sm overflow-hidden h-full" 
     >
       {/* Skeleton for Thumbnail */}
       <Skeleton variant="rectangle" width="100%" className="aspect-video" /> 
-
-      <Box display='flex' flexDirection='column' p='md'> {/* Thêm flexGrow */}
-        {/* Skeleton for Title (2 dòng) */}
-        
+      <Box display='flex' flexDirection='column' p='md'>
+        {/* Skeleton for Title*/}
         <Skeleton variant="rounded" width="80%" className='h-[5.25rem] line-clamp-3'/> 
-
         {/* Skeleton for Metadata */}
-        <Box 
-          display='flex'
-          justifyContent='space-between'
-          alignItems='center'
-          pt='sm'
-          pb='sm'
-          className='mb-4' // Thêm khoảng cách dưới metadata
-        >
+        <Box display='flex' justifyContent='space-between' alignItems='center' pt='lg' pb='lg'>
           <Skeleton variant="rounded" height={16} width="40%" />
           <Skeleton variant="rounded" height={16} width="30%" />
         </Box>
-
         {/* Skeleton for Author Info */}
-        <Skeleton variant="rounded" height={16} width="70%" className='mb-4' /> 
-
-        
-
-        {/* Skeleton for Button (Thêm mt-auto để đẩy xuống dưới) */}
-        <Button
-              text="Loading Primary"
-              color="primary"
-              loading={true}
-            />
-        
+        <Skeleton variant="rounded" height={16} width="70%" mb='lg' /> 
+        <Button text="Loading Primary" color="primary" loading={true}/>
       </Box>
     </Box>
   );
@@ -262,7 +209,6 @@ function getCourseCardAction(course: Course, navigate: NavigateFunction): Course
   let buttonText = 'Enroll Course'; // Default text
   let buttonColor = 'lime500';
   let buttonAction = () => alert(`Enrolling in: ${course.post_title}`); // Default action
-
   // Logic based on actual enrollment status
   if (enrollmentStatus === 'Continue Learning') {
       buttonText = 'Continue Learning';
@@ -273,8 +219,6 @@ function getCourseCardAction(course: Course, navigate: NavigateFunction): Course
       buttonColor = 'orange400';
       buttonAction = () => navigate(`/courses/${course.id}/learn`);
   }
-  // Add other statuses if needed (e.g., 'completed')
-
   return { buttonColor, buttonText, buttonAction };
 }
 // --- End Helper Function ---
@@ -286,13 +230,9 @@ export default function CoursesPage() {
   const navigate = useNavigate();
   const navigation = useNavigation();
   const loading = fetcher.state !== 'idle' || navigation.state !== 'idle';
-
   const displayData = fetcher.data || initialData;
-
   // Handle error case first using type guarding
   if ('error' in displayData && displayData.error) {
-      // Assign to a variable to ensure the type is correctly inferred as string
-      // const errorMessage = displayData.error;
       return (
         <Base>
           <Box p="lg">
@@ -302,13 +242,10 @@ export default function CoursesPage() {
       );
   }
 
-  // If no error, TypeScript knows displayData has the success shape.
   // Destructure the guaranteed properties.
   const { courses, totalPages, currentPage, totalCourses, availableCategories, availableTags } = displayData;
-
   // State for search input
   const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
-
   // State for selected filters (initialize from URL params if needed on load)
   // Assume params are comma-separated IDs or slugs
   const [selectedCategories, setSelectedCategories] = useState<string[]>(
@@ -318,20 +255,19 @@ export default function CoursesPage() {
     searchParams.get('tags')?.split(',').filter(Boolean) || []
   );
 
-  // State for sorting (already exists, keep for later Dropdown integration)
+  // State for sorting
   const [currentSortValue, setCurrentSortValue] = useState<string>(
-    searchParams.get('sort') || sortOptions[0].value // Lấy từ URL hoặc mặc định là tùy chọn đầu tiên
+    searchParams.get('sort') || sortOptions[0].value
   );
-
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
 
   // --- Handler for Sorting ---
   const handleSortChange = (newValue: string) => {
     setCurrentSortValue(newValue);
-    setIsSortDropdownOpen(false); // Đóng dropdown sau khi chọn
+    setIsSortDropdownOpen(false);
   };
 
-  // --- useEffect chính ---
+  // --- useEffect ---
   useEffect(() => {
     const timer = setTimeout(() => {
       const newParams = new URLSearchParams(searchParams);
@@ -355,11 +291,9 @@ export default function CoursesPage() {
       if (newParams.toString() !== searchParams.toString()) {
          navigate(`/courses?${newParams.toString()}`, { replace: true });
       }
-
     }, 500); // Debounce changes
 
     return () => clearTimeout(timer);
-  // --- THÊM currentSortValue VÀO ĐÂY, XÓA sortingOption ---
   }, [searchQuery, selectedCategories, selectedTags, currentSortValue, navigate]); 
 
   const handleCategoryToggle = (categoryIdentifier: string) => {
@@ -500,7 +434,10 @@ export default function CoursesPage() {
                     borderColor="grey300"
                     b='thin'
                     borderRadius='md'
-                    className="shadow-sm overflow-hidden flex flex-col h-full transition-all duration-200 ease-in-out hover:shadow-xl"
+                    display='flex'
+                    flexDirection='column'
+                    overflow='hidden'
+                    className="shadow-sm h-full transition-all duration-200 ease-in-out hover:shadow-xl"
                   >
                     <Box className="relative w-full aspect-video">
                       <img
@@ -528,12 +465,12 @@ export default function CoursesPage() {
                         pt='sm'
                         pb='sm'
                       >
-                        <Box className="flex items-center gap-1">
+                        <Box display='flex' alignItems='center' gap='xs'>
                           <svg className="w-4 h-4 text-yellow-400" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
                           <Text fontSize='medium' color='grey700'>{course.ratings?.rating_avg || 'N/A'}</Text>
                           <Text fontSize='medium' color='grey500'> ({course.ratings?.rating_count || '0'})</Text>
                         </Box>
-                        <Box className="flex items-center gap-1">
+                        <Box display='flex' alignItems='center' gap='xs'>
                            <svg className="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path></svg>
                            <Text fontSize='medium' color='grey700'>{course.ratings?.rating_sum || '0'}</Text>
                         </Box>
@@ -562,11 +499,11 @@ export default function CoursesPage() {
               })}
             </Box>
           ) : (
-             <Box className="text-center p-4">No courses found matching your criteria.</Box>
+             <Box display='flex' justifyContent='center' alignItems='center' p='lg'>No courses found matching your criteria.</Box>
           )}
 
           {totalPages > 1 && (
-            <Box className="flex justify-center items-center gap-2 mt-8">
+            <Box display='flex' justifyContent='center' alignItems='center' gap='xs' mt='lg'>
               <Link
                 to={`/courses?${updatePageParam(searchParams, currentPage - 1)}`}
                 className={`px-4 py-2 border rounded ${currentPage <= 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white text-blue-600 hover:bg-gray-50'}`}
