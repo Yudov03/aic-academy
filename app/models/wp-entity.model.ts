@@ -1,5 +1,5 @@
 // Base WordPress API response interface
 export interface WordPressEntity {
-    id: number;
+    ID: number;
     [key: string]: unknown;
 }

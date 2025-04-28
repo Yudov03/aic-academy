@@ -1,19 +1,20 @@
 import { Header, HeaderHandle } from '@aic-kits/react';
-import { useLocation, useNavigate } from '@remix-run/react';
-import { useCallback, useMemo, useRef } from 'react';
+import { useLocation, useNavigate, Form } from '@remix-run/react';
+import { useMemo, useRef } from 'react';
 
 import { DROPDOWN_NAV_ITEMS, NAV_ITEMS } from './constants';
 
-
-export const AppHeader = () => {
-  const location = useLocation(); 
+export const AppHeader = ({ isSignedIn }: { isSignedIn: boolean }) => {
+  const location = useLocation();
   const navigate = useNavigate();
   const pathname = location.pathname;
+  const headerRef = useRef<HeaderHandle>(null);
 
-  const headerRef = useRef<HeaderHandle>(null)
-  const handleLogout = useCallback(async () => {
-    headerRef.current?.hideDropdown()
-  }, []);
+  const handleLogoutClick = () => {
+    headerRef.current?.hideDropdown();
+    const logoutForm = document.getElementById('logout-form') as HTMLFormElement | null;
+    logoutForm?.submit();
+  };
 
   const headerProps = useMemo(() => ({
     navItems: NAV_ITEMS.map((item) => ({
@@ -21,11 +22,11 @@ export const AppHeader = () => {
       isActive: item.path === pathname,
       onClick: () => navigate(item.path),
     })),
-    isSignedIn: false,
+    isSignedIn: isSignedIn,
     onSignInClick: () => navigate('/login'),
     onRegisterClick: () => navigate('/register'),
     onLogoClick: () => navigate('/'),
-    profileDropdownItems: [
+    profileDropdownItems: isSignedIn ? [
       ...DROPDOWN_NAV_ITEMS.map((item) => ({
         ...item,
         isActive: item.path === pathname,
@@ -33,10 +34,19 @@ export const AppHeader = () => {
       })),
       {
         label: 'Logout',
-        onClick: handleLogout,
+        onClick: handleLogoutClick,
       }
-    ],
-  }), [handleLogout, navigate, pathname]);
-	
-  return <Header {...headerProps} />;
+    ] : [],
+  }), [navigate, pathname, isSignedIn]);
+
+  const renderHiddenLogoutForm = isSignedIn && (
+     <Form id="logout-form" action="/logout" method="post" style={{ display: 'none' }} />
+  );
+
+  return (
+    <>
+      <Header ref={headerRef} {...headerProps} />
+      {renderHiddenLogoutForm}
+    </>
+  );
 }
